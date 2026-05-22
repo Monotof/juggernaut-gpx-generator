@@ -3,4 +3,4 @@ Tool for generating .gpx files to visualize Tracklogs for the [Juggernaut Achiev
 
 [Python Code](https://github.com/Monotof/juggernaut-gpx-generator/blob/main/src/auto_juggernaut_boudaries_v5.py)
 
-[Download compiled Executable](https://github.com/Monotof/juggernaut-gpx-generator/releases/download/v0.1.0/auto_juggernaut_boudaries_v5.exe)
+[Download compiled Executable](https://github.com/Monotof/juggernaut-gpx-generator/releases/download/v0.2.0/auto_juggernaut_boudaries_v5.exe)
