@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Juggernaut GPX Generator (with Tracklog Import + Remove)
+Juggernaut GPX Generator
 """
 
 import re
@@ -144,28 +144,25 @@ def add_track_row():
     btn = tk.Button(frame, text="Add Tracklog", width=16)
     btn.pack(side="left")
 
+    # create but DO NOT pack yet
     color_entry = tk.Entry(frame, width=8)
     color_entry.insert(0, "0000ff")
-    color_entry.pack(side="left", padx=5)
 
     use_btn = tk.Button(frame, text="Use start/end from this")
-    use_btn.pack(side="left", padx=5)
 
     filename_var = tk.StringVar()
     filename_label = tk.Label(frame, textvariable=filename_var, anchor="w")
-    filename_label.pack(side="left", fill="x", expand=True)
+
 
     row["file"] = None
     row["color"] = color_entry
     row["filename"] = filename_var
     row["frame"] = frame
-    row["button"] = btn
 
     def remove_row():
         frame.destroy()
         track_rows.remove(row)
 
-        # ensure at least one empty row exists
         if not any(r["file"] is None for r in track_rows):
             add_track_row()
 
@@ -177,10 +174,13 @@ def add_track_row():
         row["file"] = file
         filename_var.set(os.path.basename(file))
 
-        # change button to remove mode
+        # SHOW controls now
+        color_entry.pack(side="left", padx=5)
+        use_btn.pack(side="left", padx=5)
+        filename_label.pack(side="left", fill="x", expand=True, padx=5)
+
         btn.config(text="Remove Tracklog", command=remove_row)
 
-        # add new empty row if this was last
         if track_rows[-1] is row:
             add_track_row()
 
@@ -275,15 +275,13 @@ def save_file():
     indent(gpx)
     ET.ElementTree(gpx).write(filepath, encoding="utf-8", xml_declaration=True)
 
-    messagebox.showinfo("Done", "GPX saved")
-
 
 # -----------------------------
 # UI
 # -----------------------------
 root = tk.Tk()
 root.title("Juggernaut GPX Generator")
-root.geometry("450x450")
+root.geometry("500x450")
 
 PAD_X = 20
 PAD_Y = 4
@@ -295,14 +293,14 @@ input_frame = tk.Frame(main_frame)
 input_frame.pack(fill="x", anchor="w")
 
 tk.Label(input_frame, text="Startpoint").pack(anchor="w", padx=PAD_X, pady=PAD_Y)
-entry1 = tk.Entry(input_frame, width=70)
+entry1 = tk.Entry(input_frame, width=80)
 entry1.pack(anchor="w", padx=PAD_X)
 label1 = tk.Label(input_frame, text="Parsed:")
 label1.pack(anchor="w", padx=PAD_X)
 entry1.bind("<KeyRelease>", lambda e: update_preview(entry1, label1))
 
 tk.Label(input_frame, text="Endpoint (Hashpoint)").pack(anchor="w", padx=PAD_X, pady=PAD_Y)
-entry2 = tk.Entry(input_frame, width=70)
+entry2 = tk.Entry(input_frame, width=80)
 entry2.pack(anchor="w", padx=PAD_X)
 label2 = tk.Label(input_frame, text="Parsed:")
 label2.pack(anchor="w", padx=PAD_X)
