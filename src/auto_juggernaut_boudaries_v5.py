@@ -10,6 +10,8 @@ from tkinter import filedialog, messagebox
 import xml.etree.ElementTree as ET
 from geographiclib.geodesic import Geodesic
 import tkinter.font as tkfont
+import locale
+locale.setlocale(locale.LC_ALL, '')
 
 
 # -----------------------------
@@ -211,12 +213,43 @@ def add_track_row():
 # -----------------------------
 # GUI LOGIC
 # -----------------------------
+def update_info():
+    c1 = parse_coordinates(entry1.get())
+    c2 = parse_coordinates(entry2.get())
+
+    try:
+        factor = float(factor_entry.get())
+    except:
+        info_label.config(text="Invalid factor")
+        return
+
+    if not c1 or not c2:
+        info_label.config(text="Total distance: --- km     Deviation Limit: --- m")
+        return
+
+    geod = Geodesic.WGS84
+    inv = geod.Inverse(c1[0], c1[1], c2[0], c2[1])
+
+    distance = inv["s12"]
+    limit = distance / factor
+
+    distance_km = locale.format_string("%.2f", distance / 1000, grouping=True)
+    limit_m = locale.format_string("%.0f", limit, grouping=True)
+    
+    info_label.config(
+        text=f"Total distance: {distance_km} km     Deviation Limit: {limit_m} m"
+    )
+
+
+
 def update_preview(entry, label):
     coords = parse_coordinates(entry.get())
     if coords:
         label.config(text=f"Parsed: {coords[0]:.6f}, {coords[1]:.6f}")
     else:
         label.config(text="Invalid input")
+
+    update_info()
 
 
 def save_file():
@@ -313,6 +346,11 @@ tk.Label(factor_frame, text="Deviation Ratio 1:").pack(side="left")
 factor_entry = tk.Entry(factor_frame, width=5)
 factor_entry.insert(0, "20")
 factor_entry.pack(side="left")
+factor_entry.bind("<KeyRelease>", lambda e: update_info())
+
+info_label = tk.Label(input_frame, text="Total distance: --- km     Deviation Limit: --- m")
+info_label.pack(anchor="w", padx=PAD_X)
+
 
 tk.Label(main_frame, text="Tracklogs to include:").pack(anchor="w", padx=PAD_X, pady=(10, 2))
 
