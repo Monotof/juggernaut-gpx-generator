@@ -102,6 +102,7 @@ def create_track(name, points, color):
 
     ext = ET.SubElement(trk, "extensions")
     style = ET.SubElement(ext, "gpx_style:line")
+    ET.SubElement(style, "gpx_style:color").text = color
     line = ET.SubElement(style, "line", xmlns="http://www.topografix.com/GPX/gpx_style/0/2")
     ET.SubElement(line, "color").text = color
 
