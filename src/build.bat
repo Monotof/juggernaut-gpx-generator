@@ -1,4 +1,4 @@
 @off
 cd /d "%~dp0"
-pyinstaller auto_juggernaut_boudaries_v5.py --onefile --noconsole
+pyinstaller juggernaut-gpx-generator.py --onefile --noconsole
 pause
