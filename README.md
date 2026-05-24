@@ -3,7 +3,7 @@ Tool for generating .gpx files to visualize Tracklogs for the [Juggernaut Achiev
 
 [Python Code](https://github.com/Monotof/juggernaut-gpx-generator/blob/main/src/juggernaut-gpx-generator.py)
 
-[Download compiled Executable of latest Release](https://github.com/Monotof/juggernaut-gpx-generator/releases/latest/download/juggernaut-gpx-generator.exe)
+[Download compiled Executable of latest Release](https://github.com/Monotof/juggernaut-gpx-generator/releases/latest/download/juggernaut-gpx-generator.exe) (Windows)
 
 ## How to Use
 
