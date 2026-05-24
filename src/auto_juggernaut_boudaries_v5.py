@@ -6,14 +6,13 @@ Juggernaut GPX Generator
 import re
 import os
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk, simpledialog
 import xml.etree.ElementTree as ET
 from geographiclib.geodesic import Geodesic
 import tkinter.font as tkfont
 import locale
 import json
 import sys
-from tkinter import simpledialog
 import datetime
 
 
@@ -45,7 +44,7 @@ def parse_coordinates(text):
 
     #  normal lat/lon input
     if len(nums) >= 2:
-        return float(nums[0]), float(nums[1])
+        return (float(nums[0]), float(nums[1])), False
 
     # graticule or date + graticule
     parts = text.split()
@@ -66,15 +65,31 @@ def parse_coordinates(text):
             date = datetime.date.today()
 
         else:
-            return None
+            return None, None
 
         gh_lat, gh_lon = geohash(lat, lon, date=date)
-        return gh_lat, gh_lon
+        return (gh_lat, gh_lon), True
 
     except Exception:
-        return None
+        return None, None
 
 
+def center_window(parent, child):
+    parent.update_idletasks()
+    child.update_idletasks()
+
+    px = parent.winfo_rootx()
+    py = parent.winfo_rooty()
+    pw = parent.winfo_width()
+    ph = parent.winfo_height()
+
+    cw = child.winfo_width()
+    ch = child.winfo_height()
+
+    x = px + (pw // 2) - (cw // 2)
+    y = py + (ph // 2) - (ch // 2)
+
+    child.geometry(f"+{x}+{y}")
 
 # -----------------------------
 # POINT STORAGE
@@ -165,6 +180,42 @@ def compute_center_line(lat1, lon1, lat2, lon2):
     return points
 
 
+def compute_deviation_stats(track_points, lat1, lon1, lat2, lon2):
+    geod = Geodesic.WGS84
+
+    inv = geod.Inverse(lat1, lon1, lat2, lon2)
+    line = geod.Line(lat1, lon1, inv["azi1"])
+
+    total_dist = inv["s12"]
+
+    max_left = 0
+    max_right = 0
+
+    for i, (lat, lon) in enumerate(track_points):
+        # position relative to line start
+        inv_pt = geod.Inverse(lat1, lon1, lat, lon)
+
+        s = inv_pt["s12"]
+        azi = inv_pt["azi1"]
+
+        pos = line.Position(s)
+
+        # perpendicular distance
+        cross = geod.Inverse(pos["lat2"], pos["lon2"], lat, lon)["s12"]
+
+        # determine side using azimuth difference
+        diff = (azi - pos["azi2"] + 360) % 360
+        if diff > 180:
+            cross = -cross
+
+        if cross > max_right:
+            max_right = cross
+        if cross < max_left:
+            max_left = cross
+
+    return abs(max_left), max_right, total_dist
+
+
 # -----------------------------
 # GPX
 # -----------------------------
@@ -215,15 +266,22 @@ def add_track_row():
 
     frame = tk.Frame(tracks_container)
     frame.pack(fill="x", anchor="w", padx=20, pady=4)
+    
+    controls_frame = tk.Frame(frame)
+    controls_frame.pack(fill="x")
 
-    btn = tk.Button(frame, text="Add Tracklog", width=16)
+    btn = tk.Button(controls_frame, text="Add Tracklog", width=16)
     btn.pack(side="left")
+    
 
     # create but DO NOT pack yet
-    color_entry = tk.Entry(frame, width=8)
+    color_entry = tk.Entry(controls_frame, width=8)
     color_entry.insert(0, "0000ff")
 
-    use_btn = tk.Button(frame, text="Use start/end from this")
+    use_btn = tk.Button(controls_frame, text="Use start/end from this")
+    calc_btn = tk.Button(controls_frame, text="Calculate juggernaut", state="disabled")
+    update_info()
+    row["calc_btn"] = calc_btn
 
     filename_var = tk.StringVar()
     filename_label = tk.Label(frame, textvariable=filename_var, anchor="w")
@@ -252,6 +310,7 @@ def add_track_row():
         # SHOW controls now
         color_entry.pack(side="left", padx=5)
         use_btn.pack(side="left", padx=5)
+        calc_btn.pack(side="left", padx=5)
         filename_label.pack(side="left", fill="x", expand=True, padx=5)
 
         btn.config(text="Remove Tracklog", command=remove_row)
@@ -276,9 +335,69 @@ def add_track_row():
 
         update_preview(entry1, label1)
         update_preview(entry2, label2)
+        
+    
+    def calculate_juggernaut():
+        tracks = load_gpx_segments(row["file"])
+        if not tracks:
+            return
+    
+        pts = tracks[0]
+    
+        c1, _ = parse_coordinates(entry1.get())
+        c2, _ = parse_coordinates(entry2.get())
+        factor = float(factor_entry.get())
+    
+        lat1, lon1 = c1
+        lat2, lon2 = c2
+    
+        geod = Geodesic.WGS84
+        total_dist = geod.Inverse(lat1, lon1, lat2, lon2)["s12"]
+        limit = total_dist / factor
+        
+        max_left = 0
+        max_right = 0
+        pos_left = 0
+        pos_right = 0
+        
+        current_dist = 0
+        
+        for i, (lat, lon) in enumerate(pts):
+        
+            if i > 0:
+                inv = geod.Inverse(
+                    pts[i-1][0], pts[i-1][1],
+                    lat, lon
+                )
+                current_dist += inv["s12"]
+        
+            l, r, _ = compute_deviation_stats([(lat, lon)], lat1, lon1, lat2, lon2)
+        
+            if l > max_left:
+                max_left = l
+                pos_left = current_dist
+        
+            if r > max_right:
+                max_right = r
+                pos_right = current_dist
+        
+            progress.set((i + 1) / len(pts) * 100)
+            root.update_idletasks()
+    
+        if max_left > max_right:
+            max_dev = max_left
+            pos_max = pos_left
+        else:
+            max_dev = max_right
+            pos_max = pos_right
+
+        dev_factor = total_dist / max_dev if max_dev else 0
+    
+        show_results(total_dist, limit, max_dev, pos_max, dev_factor, max_left, pos_left, max_right, pos_right, current_dist, row)
 
     btn.config(command=choose_file)
     use_btn.config(command=use_points)
+    calc_btn.config(command=calculate_juggernaut)
 
     track_rows.append(row)
 
@@ -286,9 +405,79 @@ def add_track_row():
 # -----------------------------
 # GUI LOGIC
 # -----------------------------
+def show_results(total_dist, limit, max_dev, pos_max, dev_factor, max_left, pos_left, max_right, pos_right, track_len, row):
+    result_text = (
+        f"Straight line Distance: {total_dist/1000:.2f} km\n"
+        f"Deviation Limit: {limit:.0f} m\n\n"
+    
+        f"Max Deviation: {max_dev:.0f} m at {pos_max/1000:.2f} km\n"
+        f"Deviation Factor: {dev_factor:.2f}\n"
+        f"Remaining Threshold: {limit - max_dev:.0f} m\n\n"
+    
+        f"Max Left Deviation: {max_left:.0f} m at {pos_left/1000:.2f} km\n"
+        f"Max Right Deviation: {max_right:.0f} m at {pos_right/1000:.2f} km\n"
+        f"Total Track lenght: {track_len/1000:.2f} km\n"
+    )
+    
+    
+    # --- build wiki text ---  
+    wiki_text = "== Tracklog ==\n{{tracklog | ...juggernaut.gpx}}\n"
+    main_color = row["color"].get()
+    wiki_text += f"{{{{square|{main_color}}}}} Juggernaut run &emsp;&emsp;\n"
+
+    
+    for r in track_rows:
+        if not r["file"] or r is row:
+            continue
+    
+        fname = os.path.basename(r["file"])
+        name = os.path.splitext(fname)[0]
+        color = r["color"].get()
+    
+        wiki_text += f"{{{{square|{color}}}}} {name} &emsp;&emsp;\n"
+    
+    wiki_text += "{{square|000000}} Juggernaut boundaries"
+
+
+    dialog = tk.Toplevel(root)
+    dialog.title("Juggernaut Results")
+
+    txt = tk.Text(dialog, width=100, height=11)
+    txt.insert("1.0", result_text)
+    txt.pack(padx=10, pady=10)
+
+
+    tk.Button(
+        dialog,
+        text="Copy Results",
+        command=lambda: (
+            root.clipboard_clear(),
+            root.clipboard_append(result_text)
+        )
+    ).pack(pady=5)
+    
+    
+    # --- wiki export block ---
+    tk.Label(dialog, text="Wiki Color Legend:").pack(anchor="w", padx=10)
+    
+    wiki_txt = tk.Text(dialog, width=100, height=8)
+    wiki_txt.insert("1.0", wiki_text)
+    wiki_txt.pack(padx=10, pady=5)
+    
+    tk.Button(
+        dialog,
+        text="Copy Wiki Text",
+        command=lambda: (
+            root.clipboard_clear(),
+            root.clipboard_append(wiki_text)
+        )
+    ).pack(pady=(0, 10))
+
+
+
 def update_info():
-    c1 = parse_coordinates(entry1.get())
-    c2 = parse_coordinates(entry2.get())
+    c1, _ = parse_coordinates(entry1.get())
+    c2, _ = parse_coordinates(entry2.get())
 
     try:
         factor = float(factor_entry.get())
@@ -298,6 +487,10 @@ def update_info():
 
     if not c1 or not c2:
         info_label.config(text="Total distance: --- km     Deviation Limit: --- m")
+        generate_btn.config(state="disabled")
+        for row in track_rows:
+            if "calc_btn" in row and row["file"]:
+                row["calc_btn"].config(state="disabled")
         return
 
     geod = Geodesic.WGS84
@@ -312,11 +505,16 @@ def update_info():
     info_label.config(
         text=f"Total distance: {distance_km} km     Deviation Limit: {limit_m} m"
     )
+    
+    generate_btn.config(state="normal")
+    for row in track_rows:
+        if "calc_btn" in row and row["file"]:
+            row["calc_btn"].config(state="normal")
 
 
 
 def update_preview(entry, label):
-    coords = parse_coordinates(entry.get())
+    coords, _ = parse_coordinates(entry.get())
     if coords:
         label.config(text=f"Parsed: {coords[0]:.6f}, {coords[1]:.6f}")
     else:
@@ -327,8 +525,8 @@ def update_preview(entry, label):
 
 
 def save_file():
-    c1 = parse_coordinates(entry1.get())
-    c2 = parse_coordinates(entry2.get())
+    c1, _ = parse_coordinates(entry1.get())
+    c2, _ = parse_coordinates(entry2.get())
 
     if not c1 or not c2:
         messagebox.showerror("Error", "Invalid coordinates")
@@ -336,7 +534,29 @@ def save_file():
 
     factor = float(factor_entry.get())
 
-    filepath = filedialog.asksaveasfilename(defaultextension=".gpx")
+    # -----------------------------
+    # Build default filename
+    # -----------------------------
+    text1 = entry2.get()
+
+    # try to extract date YYYY-MM-DD
+    match = re.search(r"\d{4}-\d{2}-\d{2}", text1)
+    if match:
+        date_str = match.group(0)
+    else:
+        date_str = datetime.date.today().strftime("%Y-%m-%d")
+
+    # graticule from endpoint (no decimals)
+    lat_grat = int(c2[0])
+    lon_grat = int(c2[1])
+
+    default_filename = f"{date_str} {lat_grat} {lon_grat} juggernaut.gpx"
+
+    filepath = filedialog.asksaveasfilename(
+        defaultextension=".gpx",
+        filetypes=[("GPX files", "*.gpx")],
+        initialfile=default_filename
+    )
     if not filepath:
         return
 
@@ -383,16 +603,21 @@ def save_file():
     ET.ElementTree(gpx).write(filepath, encoding="utf-8", xml_declaration=True)
 
 def save_point(entry):
-    coords = parse_coordinates(entry.get())
+    coords, is_hashpoint = parse_coordinates(entry.get())
     if not coords:
         return
-
-    name = simpledialog.askstring("Save Point", "Enter name:")
+    
+    init_str = entry.get() if is_hashpoint else ''
+    
+    name = simpledialog.askstring("Save Point", "Enter name:", initialvalue=init_str)
     if not name:
         return
 
     data = load_saved_points()
-    data[name] = {"lat": coords[0], "lon": coords[1]}
+    if is_hashpoint:
+        data[name] = {"hashpoint": entry.get()}
+    else:
+        data[name] = {"lat": coords[0], "lon": coords[1]}
     save_points_dict(data)
 
     update_save_load_buttons()
@@ -436,7 +661,10 @@ def load_point(entry, label):
         pt = data[name]
 
         entry.delete(0, tk.END)
-        entry.insert(0, f"{pt['lat']}, {pt['lon']}")
+        if 'hashpoint' in pt:
+            entry.insert(0, f"{pt['hashpoint']}")
+        else:
+            entry.insert(0, f"{pt['lat']}, {pt['lon']}")
         update_preview(entry, label)
 
         dialog.destroy()
@@ -472,13 +700,14 @@ def load_point(entry, label):
     
     tk.Button(btn_frame, text="Remove", command=do_remove).pack(side="left", padx=5)
     tk.Button(btn_frame, text="Load", command=do_load).pack(side="left", padx=5)
+    center_window(root, dialog)
 
 
 def update_save_load_buttons():
     points_exist = bool(load_saved_points())
 
-    c1 = parse_coordinates(entry1.get())
-    c2 = parse_coordinates(entry2.get())
+    c1, _ = parse_coordinates(entry1.get())
+    c2, _ = parse_coordinates(entry2.get())
 
     start_save_btn.config(state="normal" if c1 else "disabled")
     end_save_btn.config(state="normal" if c2 else "disabled")
@@ -494,7 +723,7 @@ if __name__ == "__main__":
     # -----------------------------
     root = tk.Tk()
     root.title("Juggernaut GPX Generator")
-    root.geometry("500x450")
+    root.geometry("500x600")
     
     PAD_X = 20
     PAD_Y = 4
@@ -506,73 +735,133 @@ if __name__ == "__main__":
     input_frame.pack(fill="x", anchor="w")
     
     
-    # point 1
+    # -----------------------------
+    # STARTPOINT
+    # -----------------------------
     row1 = tk.Frame(input_frame)
     row1.pack(fill="x", padx=PAD_X, pady=PAD_Y)
+    
     tk.Label(row1, text="Startpoint").pack(side="left")
+    
     start_save_btn = tk.Button(row1, text="Save", state="disabled")
     start_save_btn.pack(side="right", padx=2)
+    
     start_load_btn = tk.Button(row1, text="Load", state="disabled")
     start_load_btn.pack(side="right", padx=2)
+    
     entry1 = tk.Entry(input_frame, width=80)
     entry1.pack(anchor="w", padx=PAD_X)
+    
     label1 = tk.Label(input_frame, text="Parsed:")
     label1.pack(anchor="w", padx=PAD_X)
+    
     entry1.bind("<KeyRelease>", lambda e: update_preview(entry1, label1))
+    
     start_save_btn.config(command=lambda: save_point(entry1))
     start_load_btn.config(command=lambda: load_point(entry1, label1))
     
     
-    # point 2
+    # -----------------------------
+    # ENDPOINT
+    # -----------------------------
     row2 = tk.Frame(input_frame)
     row2.pack(fill="x", padx=PAD_X, pady=PAD_Y)
+    
     tk.Label(row2, text="Endpoint (Hashpoint)").pack(side="left")
+    
     end_save_btn = tk.Button(row2, text="Save", state="disabled")
     end_save_btn.pack(side="right", padx=2)
+    
     end_load_btn = tk.Button(row2, text="Load", state="disabled")
     end_load_btn.pack(side="right", padx=2)
+    
     entry2 = tk.Entry(input_frame, width=80)
     entry2.pack(anchor="w", padx=PAD_X)
+    
     label2 = tk.Label(input_frame, text="Parsed:")
     label2.pack(anchor="w", padx=PAD_X)
+    
     entry2.bind("<KeyRelease>", lambda e: update_preview(entry2, label2))
+    
     end_save_btn.config(command=lambda: save_point(entry2))
     end_load_btn.config(command=lambda: load_point(entry2, label2))
     
     
+    # -----------------------------
+    # FACTOR + INFO + BUTTON
+    # -----------------------------
+    top_action_frame = tk.Frame(main_frame)
+    top_action_frame.pack(fill="x", padx=PAD_X, pady=PAD_Y)
     
-    factor_frame = tk.Frame(input_frame)
-    factor_frame.pack(anchor="w", padx=PAD_X, pady=PAD_Y)
+    # LEFT SIDE
+    left_frame = tk.Frame(top_action_frame)
+    left_frame.pack(side="left", fill="x", expand=True)
+    
+    # deviation ratio
+    factor_frame = tk.Frame(left_frame)
+    factor_frame.pack(anchor="w")
     
     tk.Label(factor_frame, text="Deviation Ratio 1:").pack(side="left")
+    
     factor_entry = tk.Entry(factor_frame, width=5)
     factor_entry.insert(0, "20")
     factor_entry.pack(side="left")
     factor_entry.bind("<KeyRelease>", lambda e: update_info())
     
-    info_label = tk.Label(input_frame, text="Total distance: --- km     Deviation Limit: --- m")
-    info_label.pack(anchor="w", padx=PAD_X)
+    # info label
+    info_label = tk.Label(
+        left_frame,
+        text="Total distance: --- km     Deviation Limit: --- m"
+    )
+    info_label.pack(anchor="w")
     
     
-    tk.Label(main_frame, text="Tracklogs to include:").pack(anchor="w", padx=PAD_X, pady=(10, 2))
+    # RIGHT SIDE (BIG BUTTON)
+    right_frame = tk.Frame(top_action_frame)
+    right_frame.pack(side="right", anchor="n")
+    
+    big_font = tkfont.Font(size=10, weight="bold")
+    
+
+    generate_btn = tk.Button(
+        right_frame,
+        text="Generate combined GPX",
+        command=save_file,
+        font=big_font,
+        padx=10,
+        pady=10,
+        state="disabled"
+    )
+    generate_btn.pack()
+
+    
+    
+    # -----------------------------
+    # TRACKS
+    # -----------------------------
+    tk.Label(main_frame, text="Tracklogs to include:").pack(
+        anchor="w", padx=PAD_X, pady=(10, 2)
+    )
     
     tracks_container = tk.Frame(main_frame)
     tracks_container.pack(fill="x", anchor="w")
     
-    button_frame = tk.Frame(main_frame)
-    button_frame.pack(fill="x", pady=10)
     
-    big_font = tkfont.Font(size=10, weight="bold")
+    # -----------------------------
+    # STATUS BAR (BOTTOM)
+    # -----------------------------
+    progress = tk.DoubleVar()
     
-    tk.Button(
-        button_frame,
-        text="Generate combined GPX",
-        command=save_file,
-        font=big_font,
-        padx=8,
-        pady=5
-    ).pack(padx=PAD_X, pady=10)
+    status_frame = tk.Frame(root)
+    status_frame.pack(side="bottom", fill="x")
     
+    progressbar = ttk.Progressbar(status_frame, variable=progress, maximum=100)
+    progressbar.pack(fill="x", padx=5, pady=3)
+    
+    
+    # -----------------------------
+    # INIT
+    # -----------------------------
     update_save_load_buttons()
     add_track_row()
     
