@@ -798,7 +798,7 @@ if __name__ == "__main__":
 
     generate_btn = tk.Button(
         right_frame,
-        text="Generate combined GPX",
+        text="Generate GPX",
         command=save_file,
         font=big_font,
         padx=10,
