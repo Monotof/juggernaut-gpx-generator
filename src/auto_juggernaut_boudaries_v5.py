@@ -180,40 +180,24 @@ def compute_center_line(lat1, lon1, lat2, lon2):
     return points
 
 
-def compute_deviation_stats(track_points, lat1, lon1, lat2, lon2):
-    geod = Geodesic.WGS84
+def compute_point_deviation(geod, line, lat1, lon1, lat, lon):
+    # inverse from start to point
+    inv_pt = geod.Inverse(lat1, lon1, lat, lon)
 
-    inv = geod.Inverse(lat1, lon1, lat2, lon2)
-    line = geod.Line(lat1, lon1, inv["azi1"])
+    s = inv_pt["s12"]
+    azi = inv_pt["azi1"]
 
-    total_dist = inv["s12"]
+    pos = line.Position(s)
 
-    max_left = 0
-    max_right = 0
+    # perpendicular distance
+    cross = geod.Inverse(pos["lat2"], pos["lon2"], lat, lon)["s12"]
 
-    for i, (lat, lon) in enumerate(track_points):
-        # position relative to line start
-        inv_pt = geod.Inverse(lat1, lon1, lat, lon)
+    # determine side
+    diff = (azi - pos["azi2"] + 360) % 360
+    if diff > 180:
+        cross = -cross
 
-        s = inv_pt["s12"]
-        azi = inv_pt["azi1"]
-
-        pos = line.Position(s)
-
-        # perpendicular distance
-        cross = geod.Inverse(pos["lat2"], pos["lon2"], lat, lon)["s12"]
-
-        # determine side using azimuth difference
-        diff = (azi - pos["azi2"] + 360) % 360
-        if diff > 180:
-            cross = -cross
-
-        if cross > max_right:
-            max_right = cross
-        if cross < max_left:
-            max_left = cross
-
-    return abs(max_left), max_right, total_dist
+    return cross
 
 
 # -----------------------------
@@ -346,54 +330,72 @@ def add_track_row():
     
         c1, _ = parse_coordinates(entry1.get())
         c2, _ = parse_coordinates(entry2.get())
-        factor = float(factor_entry.get())
+    
+        if not c1 or not c2:
+            return
     
         lat1, lon1 = c1
         lat2, lon2 = c2
     
+        factor = float(factor_entry.get())
+    
         geod = Geodesic.WGS84
-        total_dist = geod.Inverse(lat1, lon1, lat2, lon2)["s12"]
+    
+        # ✅ precompute once
+        inv = geod.Inverse(lat1, lon1, lat2, lon2)
+        total_dist = inv["s12"]
         limit = total_dist / factor
-        
+        line = geod.Line(lat1, lon1, inv["azi1"])
+    
         max_left = 0
         max_right = 0
         pos_left = 0
         pos_right = 0
-        
+    
         current_dist = 0
-        
+    
         for i, (lat, lon) in enumerate(pts):
-        
+    
+            # accumulate track distance
             if i > 0:
-                inv = geod.Inverse(
-                    pts[i-1][0], pts[i-1][1],
-                    lat, lon
-                )
-                current_dist += inv["s12"]
-        
-            l, r, _ = compute_deviation_stats([(lat, lon)], lat1, lon1, lat2, lon2)
-        
-            if l > max_left:
-                max_left = l
-                pos_left = current_dist
-        
-            if r > max_right:
-                max_right = r
-                pos_right = current_dist
-        
+                prev_lat, prev_lon = pts[i-1]
+                seg = geod.Inverse(prev_lat, prev_lon, lat, lon)
+                current_dist += seg["s12"]
+    
+            # ✅ fast single-point deviation
+            cross = compute_point_deviation(geod, line, lat1, lon1, lat, lon)
+    
+            if cross >= 0:
+                if cross > max_right:
+                    max_right = cross
+                    pos_right = current_dist
+            else:
+                if -cross > max_left:
+                    max_left = -cross
+                    pos_left = current_dist
+    
             progress.set((i + 1) / len(pts) * 100)
             root.update_idletasks()
     
+        # determine overall max
         if max_left > max_right:
             max_dev = max_left
             pos_max = pos_left
         else:
             max_dev = max_right
             pos_max = pos_right
-
+    
         dev_factor = total_dist / max_dev if max_dev else 0
     
-        show_results(total_dist, limit, max_dev, pos_max, dev_factor, max_left, pos_left, max_right, pos_right, current_dist, row)
+        show_results(
+            total_dist, limit,
+            max_dev, pos_max,
+            dev_factor,
+            max_left, pos_left,
+            max_right, pos_right,
+            current_dist,
+            row
+        )
 
     btn.config(command=choose_file)
     use_btn.config(command=use_points)
