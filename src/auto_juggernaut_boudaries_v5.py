@@ -14,6 +14,9 @@ import locale
 import json
 import sys
 from tkinter import simpledialog
+import datetime
+
+
 locale.setlocale(locale.LC_ALL, '')
 
 
@@ -34,11 +37,43 @@ def indent(elem, level=0):
 
 
 def parse_coordinates(text):
-    text = text.replace(",", ".")
-    nums = re.findall(r"-?\d+\.\d+", text)
-    if len(nums) < 2:
+    text = text.strip()
+
+    # normalize decimal input
+    norm = text.replace(",", ".")
+    nums = re.findall(r"-?\d+\.\d+", norm)
+
+    #  normal lat/lon input
+    if len(nums) >= 2:
+        return float(nums[0]), float(nums[1])
+
+    # graticule or date + graticule
+    parts = text.split()
+
+    try:
+        # --- date + graticule ---
+        if len(parts) == 3:
+            date_str, lat_str, lon_str = parts
+
+            date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
+            lat = int(lat_str)
+            lon = int(lon_str)
+
+        # --- graticule only ---
+        elif len(parts) == 2:
+            lat = int(parts[0])
+            lon = int(parts[1])
+            date = datetime.date.today()
+
+        else:
+            return None
+
+        gh_lat, gh_lon = geohash(lat, lon, date=date)
+        return gh_lat, gh_lon
+
+    except Exception:
         return None
-    return float(nums[0]), float(nums[1])
+
 
 
 # -----------------------------
@@ -428,22 +463,6 @@ def load_point(entry, label):
         if not names:
             dialog.destroy()
 
-    def move_selection(delta):
-        sel = listbox.curselection()
-        if not sel:
-            index = 0
-        else:
-            index = sel[0] + delta
-
-        index = max(0, min(listbox.size() - 1, index))
-
-        listbox.selection_clear(0, tk.END)
-        listbox.selection_set(index)
-        listbox.activate(index)
-        listbox.see(index)
-
-    listbox.bind("<Up>", lambda e: (move_selection(-1), "break"))
-    listbox.bind("<Down>", lambda e: (move_selection(1), "break"))
 
     listbox.bind("<Double-Button-1>", lambda e: do_load())
     listbox.bind("<Return>", lambda e: do_load())
@@ -454,9 +473,6 @@ def load_point(entry, label):
     tk.Button(btn_frame, text="Remove", command=do_remove).pack(side="left", padx=5)
     tk.Button(btn_frame, text="Load", command=do_load).pack(side="left", padx=5)
 
-
-    
-    
 
 def update_save_load_buttons():
     points_exist = bool(load_saved_points())
@@ -469,92 +485,189 @@ def update_save_load_buttons():
 
     start_load_btn.config(state="normal" if points_exist else "disabled")
     end_load_btn.config(state="normal" if points_exist else "disabled")
+    
+    
+if __name__ == "__main__":
 
-# -----------------------------
-# UI
-# -----------------------------
-root = tk.Tk()
-root.title("Juggernaut GPX Generator")
-root.geometry("500x450")
+    # -----------------------------
+    # UI
+    # -----------------------------
+    root = tk.Tk()
+    root.title("Juggernaut GPX Generator")
+    root.geometry("500x450")
+    
+    PAD_X = 20
+    PAD_Y = 4
+    
+    main_frame = tk.Frame(root)
+    main_frame.pack(fill="both", expand=True)
+    
+    input_frame = tk.Frame(main_frame)
+    input_frame.pack(fill="x", anchor="w")
+    
+    
+    # point 1
+    row1 = tk.Frame(input_frame)
+    row1.pack(fill="x", padx=PAD_X, pady=PAD_Y)
+    tk.Label(row1, text="Startpoint").pack(side="left")
+    start_save_btn = tk.Button(row1, text="Save", state="disabled")
+    start_save_btn.pack(side="right", padx=2)
+    start_load_btn = tk.Button(row1, text="Load", state="disabled")
+    start_load_btn.pack(side="right", padx=2)
+    entry1 = tk.Entry(input_frame, width=80)
+    entry1.pack(anchor="w", padx=PAD_X)
+    label1 = tk.Label(input_frame, text="Parsed:")
+    label1.pack(anchor="w", padx=PAD_X)
+    entry1.bind("<KeyRelease>", lambda e: update_preview(entry1, label1))
+    start_save_btn.config(command=lambda: save_point(entry1))
+    start_load_btn.config(command=lambda: load_point(entry1, label1))
+    
+    
+    # point 2
+    row2 = tk.Frame(input_frame)
+    row2.pack(fill="x", padx=PAD_X, pady=PAD_Y)
+    tk.Label(row2, text="Endpoint (Hashpoint)").pack(side="left")
+    end_save_btn = tk.Button(row2, text="Save", state="disabled")
+    end_save_btn.pack(side="right", padx=2)
+    end_load_btn = tk.Button(row2, text="Load", state="disabled")
+    end_load_btn.pack(side="right", padx=2)
+    entry2 = tk.Entry(input_frame, width=80)
+    entry2.pack(anchor="w", padx=PAD_X)
+    label2 = tk.Label(input_frame, text="Parsed:")
+    label2.pack(anchor="w", padx=PAD_X)
+    entry2.bind("<KeyRelease>", lambda e: update_preview(entry2, label2))
+    end_save_btn.config(command=lambda: save_point(entry2))
+    end_load_btn.config(command=lambda: load_point(entry2, label2))
+    
+    
+    
+    factor_frame = tk.Frame(input_frame)
+    factor_frame.pack(anchor="w", padx=PAD_X, pady=PAD_Y)
+    
+    tk.Label(factor_frame, text="Deviation Ratio 1:").pack(side="left")
+    factor_entry = tk.Entry(factor_frame, width=5)
+    factor_entry.insert(0, "20")
+    factor_entry.pack(side="left")
+    factor_entry.bind("<KeyRelease>", lambda e: update_info())
+    
+    info_label = tk.Label(input_frame, text="Total distance: --- km     Deviation Limit: --- m")
+    info_label.pack(anchor="w", padx=PAD_X)
+    
+    
+    tk.Label(main_frame, text="Tracklogs to include:").pack(anchor="w", padx=PAD_X, pady=(10, 2))
+    
+    tracks_container = tk.Frame(main_frame)
+    tracks_container.pack(fill="x", anchor="w")
+    
+    button_frame = tk.Frame(main_frame)
+    button_frame.pack(fill="x", pady=10)
+    
+    big_font = tkfont.Font(size=10, weight="bold")
+    
+    tk.Button(
+        button_frame,
+        text="Generate combined GPX",
+        command=save_file,
+        font=big_font,
+        padx=8,
+        pady=5
+    ).pack(padx=PAD_X, pady=10)
+    
+    update_save_load_buttons()
+    add_track_row()
+    
+    root.mainloop()
 
-PAD_X = 20
-PAD_Y = 4
-
-main_frame = tk.Frame(root)
-main_frame.pack(fill="both", expand=True)
-
-input_frame = tk.Frame(main_frame)
-input_frame.pack(fill="x", anchor="w")
 
 
-# point 1
-row1 = tk.Frame(input_frame)
-row1.pack(fill="x", padx=PAD_X, pady=PAD_Y)
-tk.Label(row1, text="Startpoint").pack(side="left")
-start_save_btn = tk.Button(row1, text="Save", state="disabled")
-start_save_btn.pack(side="right", padx=2)
-start_load_btn = tk.Button(row1, text="Load", state="disabled")
-start_load_btn.pack(side="right", padx=2)
-entry1 = tk.Entry(input_frame, width=80)
-entry1.pack(anchor="w", padx=PAD_X)
-label1 = tk.Label(input_frame, text="Parsed:")
-label1.pack(anchor="w", padx=PAD_X)
-entry1.bind("<KeyRelease>", lambda e: update_preview(entry1, label1))
-start_save_btn.config(command=lambda: save_point(entry1))
-start_load_btn.config(command=lambda: load_point(entry1, label1))
+# %% code from makew0rld/geohashing
+
+# Based on code from:
+# https://github.com/makew0rld/geohashing
+# License: CC0-1.0 license
 
 
-# point 2
-row2 = tk.Frame(input_frame)
-row2.pack(fill="x", padx=PAD_X, pady=PAD_Y)
-tk.Label(row2, text="Endpoint (Hashpoint)").pack(side="left")
-end_save_btn = tk.Button(row2, text="Save", state="disabled")
-end_save_btn.pack(side="right", padx=2)
-end_load_btn = tk.Button(row2, text="Load", state="disabled")
-end_load_btn.pack(side="right", padx=2)
-entry2 = tk.Entry(input_frame, width=80)
-entry2.pack(anchor="w", padx=PAD_X)
-label2 = tk.Label(input_frame, text="Parsed:")
-label2.pack(anchor="w", padx=PAD_X)
-entry2.bind("<KeyRelease>", lambda e: update_preview(entry2, label2))
-end_save_btn.config(command=lambda: save_point(entry2))
-end_load_btn.config(command=lambda: load_point(entry2, label2))
+import datetime
+import requests
+from hashlib import md5
+import sys
+import argparse
+
+# Websites that return the Dow Jones index in plain text
+# The date can be appended to the URL in this format: %Y/%m/%d
+DOW_JONES_SOURCES = ["http://geo.crox.net/djia/", "http://www1.geo.crox.net/djia/",
+                     "http://www2.geo.crox.net/djia/", "http://carabiner.peeron.com/xkcd/map/data/"]
 
 
+def get_dow_jones(east=False, date=None):
+    """
+    The date will be derived from the computer clock, but if it is manually supplied,
+    it must be in a datetime.date object.
 
-factor_frame = tk.Frame(input_frame)
-factor_frame.pack(anchor="w", padx=PAD_X, pady=PAD_Y)
+    Set `east` to true if your current location is East of -30 longitude.
+    """
+    if date is None:
+        date = datetime.date.today()
+    if east:  # Subtract a day to make this 30W compliant
+        date += datetime.timedelta(days=-1)
+    
+    date = date.strftime("%Y/%m/%d")
+    for url in DOW_JONES_SOURCES:
+        try:
+            r = requests.get(url + date, timeout=5)
+        except requests.exceptions.ReadTimeout:
+            continue  # Try another source, this one is offline
+        # Otherwise, check and return the result found
+        if r.status_code == 200:
+            return r.text.strip()
 
-tk.Label(factor_frame, text="Deviation Ratio 1:").pack(side="left")
-factor_entry = tk.Entry(factor_frame, width=5)
-factor_entry.insert(0, "20")
-factor_entry.pack(side="left")
-factor_entry.bind("<KeyRelease>", lambda e: update_info())
-
-info_label = tk.Label(input_frame, text="Total distance: --- km     Deviation Limit: --- m")
-info_label.pack(anchor="w", padx=PAD_X)
+    # All URLs have been tried and failed
+    raise Exception("None of the programmed Dow Jones sources are online, or no data exists for your date yet.\nTry providing one manually.")
 
 
-tk.Label(main_frame, text="Tracklogs to include:").pack(anchor="w", padx=PAD_X, pady=(10, 2))
+def get_hash(east=False, date=None, dow_jones=None):
+    """Get the md5 hash.
 
-tracks_container = tk.Frame(main_frame)
-tracks_container.pack(fill="x", anchor="w")
+    dow_jones can be a string or number. If it is None, then the current value
+    will be used.
+    `date` will be derived from the computer clock, but if it is manually supplied,
+    it must be in a datetime.date object.
 
-button_frame = tk.Frame(main_frame)
-button_frame.pack(fill="x", pady=10)
+    The hash will be returned as a hexadecimal string.
+    """
 
-big_font = tkfont.Font(size=10, weight="bold")
+    if date is None:
+        date = datetime.date.today()
+    if dow_jones is None:
+        dow_jones = get_dow_jones(east, date)
+    # Reformat
+    dow_jones = str(dow_jones)
+    date = date.strftime("%Y-%m-%d")
 
-tk.Button(
-    button_frame,
-    text="Generate combined GPX",
-    command=save_file,
-    font=big_font,
-    padx=8,
-    pady=5
-).pack(padx=PAD_X, pady=10)
+    return md5(date.encode() + b"-" + dow_jones.encode()).hexdigest()
 
-update_save_load_buttons()
-add_track_row()
 
-root.mainloop()
+def hash_to_location(u_lat, u_lon, md5_hash):
+    """Returns (lat, lon) as floats."""
+
+    h1 = md5_hash[:16]
+    h2 = md5_hash[16:]
+    # Append the base10 conversion as decimals
+    lat = str(int(u_lat)) + str(float.fromhex("0." + h1))[1:]
+    lon = str(int(u_lon)) + str(float.fromhex("0." + h2))[1:]
+    return float(lat), float(lon)
+
+
+def geohash(lat, lon, date=None, dow_jones=None, east=None):
+    """Get an xkcd geohash for the supplied position.
+
+    This function is 30W compliant. If `east` is specified than this functionality
+    is overrided.
+    """
+
+    if east is None:
+        east = False
+        if lon > -30:
+            east = True
+    
+    return hash_to_location(lat, lon, get_hash(east, date, dow_jones))
