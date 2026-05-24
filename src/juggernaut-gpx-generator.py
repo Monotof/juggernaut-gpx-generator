@@ -90,7 +90,6 @@ def center_window(parent, child):
     child.geometry(f"+{x}+{y}")
 
 # %% POINT STORAGE
-# -----------------------------
 def get_appdata_dir():
     if sys.platform.startswith("win"):
         base = os.getenv("APPDATA")
@@ -122,7 +121,6 @@ def save_points_dict(data):
     with open(POINTS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
-# -----------------------------
 # %% GEODESIC
 def compute_offset_lines(lat1, lon1, lat2, lon2, limit):
     geod = Geodesic.WGS84
