@@ -5,9 +5,41 @@ Tool for generating .gpx files to visualize Tracklogs for the [Juggernaut Achiev
 
 [Download compiled Executable of latest Release](https://github.com/Monotof/juggernaut-gpx-generator/releases/latest/download/juggernaut-gpx-generator.exe)
 
-## How to use
+## How to Use
 
-todo
+<table border="0" cellspacing="0" cellpadding="0">
+<tr>
+<td width="630" valign="top" style="border:none;">
+
+<img width="620" height="530" alt="Screenshot 2026-05-24 191817" src="https://github.com/user-attachments/assets/78132a4e-3c6b-4e48-834f-e461541b8eb6" />
+
+</td>
+<td valign="top" style="border:none; padding-left:20px;">
+
+Paste coordinates for the start and endpoint in any format. You can also use a Geohash date and graticule, or just a graticule for the current day. Save and load frequently used points (e.g. Home and Office).
+
+Use **"Generate combined GPX"** without adding any tracklogs to create a GPX containing the direct line and Juggernaut limits for the selected deviation ratio. This is useful for loading into your route-planning tool of choice.
+
+After completing your mission, add your tracklog(s) and choose the color you want them to appear as on the wiki.
+
+</td>
+</tr>
+
+<tr>
+<td width="630" valign="top" style="border:none;">
+
+<img width="577" height="578" alt="Screenshot 2026-05-24 194941" src="https://github.com/user-attachments/assets/b9537939-d006-45a2-8d7b-018cbf58ca2f" />
+
+</td>
+<td valign="top" style="border:none; padding-left:20px;">
+
+Use **"Calculate Juggernaut"** for your tracklog and the hashpoint to generate detailed metrics for your mission report, along with a prepared tracklog section including the color legend.
+
+</td>
+</tr>
+</table>
+
+This tool uses the WGS 1984 model for maximum accuracy. Some other route-planning software may use different models, so slight inconsistencies can occur.
 
 ## Third-Party Code
 
