@@ -123,12 +123,13 @@ def save_points_dict(data):
         json.dump(data, f, indent=2)
 
 # %% GEODESIC
-def compute_offset_lines(lat1, lon1, lat2, lon2, limit):
+def compute_closed_offset_track(lat1, lon1, lat2, lon2, limit, circle_detail = 15):
     geod = Geodesic.WGS84
 
     inv = geod.Inverse(lat1, lon1, lat2, lon2)
     total_dist = inv["s12"]
     azi1 = inv["azi1"]
+    azi2 = inv["azi2"]
 
     max_segments = 500
     base_step = 2000
@@ -143,6 +144,7 @@ def compute_offset_lines(lat1, lon1, lat2, lon2, limit):
 
     left_points, right_points = [], []
 
+    # --- generate base geometry ---
     for i in range(n_segments + 1):
         d = min(i * step, total_dist)
         pos = line.Position(d)
@@ -155,7 +157,29 @@ def compute_offset_lines(lat1, lon1, lat2, lon2, limit):
         left_points.append((left["lat2"], left["lon2"]))
         right_points.append((right["lat2"], right["lon2"]))
 
-    return left_points, right_points
+    # --- arc generator ---
+    def arc(center_lat, center_lon, start_azi, sweep, radius, segments):
+        pts = []
+        step = sweep / segments
+        for i in range(segments + 1):
+            azi = start_azi + i * step
+            p = geod.Direct(center_lat, center_lon, azi, radius)
+            pts.append((p["lat2"], p["lon2"]))
+        return pts
+
+    start_q1 = arc(lat1, lon1, azi1 + 180,  90, limit, circle_detail)
+    start_q2 = arc(lat1, lon1, azi1 +  90,  90, limit, circle_detail)
+    end_half = arc(lat2, lon2, azi2 -  90, 180, limit, (circle_detail * 2) - 1)
+
+    # --- build track ---
+    track = []
+    track.extend(start_q1)
+    track.extend(left_points[1:])
+    track.extend(end_half[1:])
+    track.extend(reversed(right_points[:-1]))
+    track.extend(start_q2[1:])
+
+    return track
 
 
 def compute_center_line(lat1, lon1, lat2, lon2):
@@ -167,8 +191,8 @@ def compute_center_line(lat1, lon1, lat2, lon2):
     line = geod.Line(lat1, lon1, azi1)
 
     points = []
-    for i in range(11):
-        d = i * total_dist / 10
+    for i in range(21):
+        d = i * total_dist / 20
         pos = line.Position(d)
         points.append((pos["lat2"], pos["lon2"]))
 
@@ -185,14 +209,12 @@ def compute_point_deviation(geod, line, lat1, lon1, lat, lon):
     pos = line.Position(s)
 
     # perpendicular distance
-    cross = geod.Inverse(pos["lat2"], pos["lon2"], lat, lon)["s12"]
+    deviation = geod.Inverse(pos["lat2"], pos["lon2"], lat, lon)["s12"]
 
     # determine side
-    diff = (azi - pos["azi2"] + 360) % 360
-    if diff > 180:
-        cross = -cross
+    left = ((azi - pos["azi2"] + 360) % 360) > 180
 
-    return cross
+    return deviation, left
 
 
 # %% GPX
@@ -352,16 +374,16 @@ def add_track_row():
                 seg = geod.Inverse(prev_lat, prev_lon, lat, lon)
                 current_dist += seg["s12"]
 
-            cross = compute_point_deviation(geod, line, lat1, lon1, lat, lon)
+            deviation, left = compute_point_deviation(geod, line, lat1, lon1, lat, lon)
     
-            if cross >= 0:
-                if cross > max_right:
-                    max_right = cross
-                    pos_right = current_dist
-            else:
-                if -cross > max_left:
-                    max_left = -cross
+            if left:
+                if deviation > max_left:
+                    max_left = deviation
                     pos_left = current_dist
+            else:
+                if deviation > max_right:
+                    max_right = deviation
+                    pos_right = current_dist
     
             progress.set((i + 1) / len(pts) * 100)
             root.update_idletasks()
@@ -424,7 +446,7 @@ def show_results(total_dist, limit, max_dev, pos_max, dev_factor, max_left, pos_
     
         wiki_text += f"{{{{square|{color}}}}} {name} &emsp;&emsp;\n"
     
-    wiki_text += "{{square|000000}} Juggernaut boundaries"
+    wiki_text += "{{square|000000}} Juggernaut boundary"
     
     dialog = tk.Toplevel(root)
     dialog.title("Juggernaut Results")
@@ -501,7 +523,7 @@ def save_file():
     distance = inv["s12"]
     limit = distance / factor
 
-    left, right = compute_offset_lines(lat1, lon1, lat2, lon2, limit)
+    boundary = compute_closed_offset_track(lat1, lon1, lat2, lon2, limit)
 
     gpx = ET.Element("gpx", version="1.1",
                      xmlns="http://www.topografix.com/GPX/1/1",
@@ -514,8 +536,7 @@ def save_file():
     ET.SubElement(author, "name").text = "Monotof's juggernaut script"
     ET.SubElement(author, "link", href="https://geohashing.site/geohashing/User:Monotof")
 
-    gpx.append(create_track("boundary 1", left, "000000"))
-    gpx.append(create_track("boundary 2", right, "000000"))
+    gpx.append(create_track("boundary", boundary, "000000"))
 
     user_tracks = [r for r in track_rows if r["file"]]
 
