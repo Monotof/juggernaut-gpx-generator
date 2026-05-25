@@ -14,11 +14,11 @@ Tool for generating .gpx files to visualize Tracklogs for the [Juggernaut Achiev
   </td>
   <td valign="top" style="border:none; padding-left:20px;">
   
-  Paste coordinates for the start and endpoint in any format. You can also use a Geohash date and graticule, or just a graticule for the current day. Save and load frequently used points (e.g. Home and Office).
+  Paste coordinates for the start and endpoint in any lat/long format. You can also use a Geohash date and graticule, or just a graticule for the current day. Save and load frequently used points (e.g. Home and Office).
 
-  Use **"Generate GPX"** without adding any tracklogs to create a GPX containing the direct line and Juggernaut boundary for the selected deviation ratio. This is useful for loading into your route-planning tool of choice.
+  Use **"Generate GPX"** without adding any tracklogs to create a .gpx file containing the straight line and juggernaut boundary for the selected deviation ratio. This is useful for loading into your route-planning tool of choice.
   
-  After completing your mission, add your tracklog(s) and choose the color you want them to appear as on the wiki.
+  After completing your mission, add your tracklog(s), choose the color you want them to appear as on the wiki, and export the combined .gpx file.
   </td>
   </tr>
   <tr>
