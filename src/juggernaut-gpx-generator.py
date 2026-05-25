@@ -142,8 +142,7 @@ def compute_closed_offset_track(lat1, lon1, lat2, lon2, limit, circle_detail = 1
 
     line = geod.Line(lat1, lon1, azi1)
 
-    left_points = []
-    right_points = []
+    left_points, right_points = [], []
 
     # --- generate base geometry ---
     for i in range(n_segments + 1):
