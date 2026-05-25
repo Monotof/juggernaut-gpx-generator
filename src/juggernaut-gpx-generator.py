@@ -123,41 +123,6 @@ def save_points_dict(data):
         json.dump(data, f, indent=2)
 
 # %% GEODESIC
-def compute_offset_lines(lat1, lon1, lat2, lon2, limit):
-    geod = Geodesic.WGS84
-
-    inv = geod.Inverse(lat1, lon1, lat2, lon2)
-    total_dist = inv["s12"]
-    azi1 = inv["azi1"]
-
-    max_segments = 500
-    base_step = 2000
-
-    n_segments = int(total_dist / base_step)
-    if n_segments > max_segments:
-        n_segments = max_segments
-
-    step = total_dist / max(n_segments, 1)
-
-    line = geod.Line(lat1, lon1, azi1)
-
-    left_points, right_points = [], []
-
-    for i in range(n_segments + 1):
-        d = min(i * step, total_dist)
-        pos = line.Position(d)
-
-        lat, lon, azi = pos["lat2"], pos["lon2"], pos["azi2"]
-
-        left = geod.Direct(lat, lon, azi - 90, limit)
-        right = geod.Direct(lat, lon, azi + 90, limit)
-
-        left_points.append((left["lat2"], left["lon2"]))
-        right_points.append((right["lat2"], right["lon2"]))
-
-    return left_points, right_points
-
-
 def compute_closed_offset_track(lat1, lon1, lat2, lon2, limit, circle_detail = 15):
     geod = Geodesic.WGS84
 
@@ -203,29 +168,9 @@ def compute_closed_offset_track(lat1, lon1, lat2, lon2, limit, circle_detail = 1
             pts.append((p["lat2"], p["lon2"]))
         return pts
 
-    start_q1 = arc(
-        lat1, lon1, 
-        azi1 + 180,
-        90,        
-        limit,
-        segments=circle_detail
-    )
-
-    start_q2 = arc(
-        lat1, lon1,
-        azi1 + 90,
-        90,
-        limit,
-        segments=circle_detail
-    )
-
-    end_half = arc(
-        lat2, lon2,
-        azi2 - 90,     
-        180,           
-        limit,
-        segments=(circle_detail * 2) - 1
-    )
+    start_q1 = arc(lat1, lon1, azi1 + 180,  90, limit, circle_detail)
+    start_q2 = arc(lat1, lon1, azi1 +  90,  90, limit, circle_detail)
+    end_half = arc(lat2, lon2, azi2 -  90, 180, limit, (circle_detail * 2) - 1)
 
     # --- build track ---
     track = []
@@ -247,8 +192,8 @@ def compute_center_line(lat1, lon1, lat2, lon2):
     line = geod.Line(lat1, lon1, azi1)
 
     points = []
-    for i in range(11):
-        d = i * total_dist / 10
+    for i in range(21):
+        d = i * total_dist / 20
         pos = line.Position(d)
         points.append((pos["lat2"], pos["lon2"]))
 
@@ -265,14 +210,12 @@ def compute_point_deviation(geod, line, lat1, lon1, lat, lon):
     pos = line.Position(s)
 
     # perpendicular distance
-    cross = geod.Inverse(pos["lat2"], pos["lon2"], lat, lon)["s12"]
+    deviation = geod.Inverse(pos["lat2"], pos["lon2"], lat, lon)["s12"]
 
     # determine side
-    diff = (azi - pos["azi2"] + 360) % 360
-    if diff > 180:
-        cross = -cross
+    left = ((azi - pos["azi2"] + 360) % 360) > 180
 
-    return cross
+    return deviation, left
 
 
 # %% GPX
@@ -432,16 +375,16 @@ def add_track_row():
                 seg = geod.Inverse(prev_lat, prev_lon, lat, lon)
                 current_dist += seg["s12"]
 
-            cross = compute_point_deviation(geod, line, lat1, lon1, lat, lon)
+            deviation, left = compute_point_deviation(geod, line, lat1, lon1, lat, lon)
     
-            if cross >= 0:
-                if cross > max_right:
-                    max_right = cross
-                    pos_right = current_dist
-            else:
-                if -cross > max_left:
-                    max_left = -cross
+            if left:
+                if deviation > max_left:
+                    max_left = deviation
                     pos_left = current_dist
+            else:
+                if deviation > max_right:
+                    max_right = deviation
+                    pos_right = current_dist
     
             progress.set((i + 1) / len(pts) * 100)
             root.update_idletasks()
@@ -581,9 +524,7 @@ def save_file():
     distance = inv["s12"]
     limit = distance / factor
 
-    # left, right = compute_offset_lines(lat1, lon1, lat2, lon2, limit)                 # old method for just 2 lines which makes 4 markers
-    left, right = compute_closed_offset_track(lat1, lon1, lat2, lon2, limit), None      # new method for pill-shape which just shows 1 marker
-
+    boundary = compute_closed_offset_track(lat1, lon1, lat2, lon2, limit)
 
     gpx = ET.Element("gpx", version="1.1",
                      xmlns="http://www.topografix.com/GPX/1/1",
@@ -596,9 +537,7 @@ def save_file():
     ET.SubElement(author, "name").text = "Monotof's juggernaut script"
     ET.SubElement(author, "link", href="https://geohashing.site/geohashing/User:Monotof")
 
-    gpx.append(create_track("boundary 1", left, "000000"))
-    if right:
-        gpx.append(create_track("boundary 2", right, "000000"))
+    gpx.append(create_track("boundary", boundary, "000000"))
 
     user_tracks = [r for r in track_rows if r["file"]]
 
