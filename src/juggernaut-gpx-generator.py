@@ -125,8 +125,8 @@ def load_saved_points():
 
 
 def save_points_dict(data):
-    """Save points dictionary to disk."""
     with open(POINTS_FILE, "w", encoding="utf-8") as f:
+    """Save points dictionary to disk."""
         json.dump(data, f, indent=2)
 
 
@@ -571,9 +571,8 @@ def add_track_row():
         update_preview(entry2, label2)
 
     def calculate_juggernaut():
-        """Calculate track deviation statistics."""
-        
         tracks = load_gpx_segments(row["file"])
+        """Calculate track deviation statistics."""
         if not tracks:
             return
 
@@ -648,8 +647,9 @@ def add_track_row():
 
     track_rows.append(row)
 
-# %% RESULTS
+
 def show_results(total_dist, limit, max_dev, pos_max, dev_factor, max_left, pos_left, max_right, pos_right, track_len, row):
+# %% RESULTS
     """Show juggernaut analysis dialog."""
     result_text = (
         f"Straight line Distance: {total_dist/1000:.2f} km\n"
@@ -921,7 +921,6 @@ def save_file():
     ET.ElementTree(gpx).write(filepath, encoding="utf-8", xml_declaration=True)
 
 def save_point(entry):
-    """Save coordinate preset."""
     coords, is_hashpoint = parse_coordinates(entry.get())
     if not coords:
         return
@@ -1071,10 +1070,6 @@ if __name__ == "__main__":
     start_load_btn = tk.Button(row1, text="Load", state="disabled")
     start_load_btn.pack(side="right", padx=2)
     
-    start_poi_var = tk.BooleanVar(value=False)
-
-    tk.Checkbutton(row1, text="add as POI", variable=start_poi_var).pack(side="right", padx=6)
-    
     entry1 = tk.Entry(input_frame, width=80)
     entry1.pack(anchor="w", padx=PAD_X)
     
@@ -1098,10 +1093,6 @@ if __name__ == "__main__":
     
     end_load_btn = tk.Button(row2, text="Load", state="disabled")
     end_load_btn.pack(side="right", padx=2)
-    
-    end_poi_var = tk.BooleanVar(value=False)
-
-    tk.Checkbutton(row2, text="add as POI", variable=end_poi_var).pack(side="right", padx=6)
     
     entry2 = tk.Entry(input_frame, width=80)
     entry2.pack(anchor="w", padx=PAD_X)
@@ -1180,6 +1171,7 @@ if __name__ == "__main__":
     
     
     # %%% INIT
+    update_save_load_buttons()
     add_track_row()
 
     refresh_app_state()
