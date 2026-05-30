@@ -993,10 +993,7 @@ if __name__ == "__main__":
     progressbar = ttk.Progressbar(status_frame, variable=progress, maximum=100)
     progressbar.pack(fill="x", padx=5, pady=3)
     
-    
     # %%% INIT
     add_track_row()
-
     refresh_app_state()
-
     root.mainloop()
