@@ -126,6 +126,7 @@ def load_saved_points():
 
 def save_points_dict(data):
     with open(POINTS_FILE, "w", encoding="utf-8") as f:
+    """Save points dictionary to disk."""
         json.dump(data, f, indent=2)
 
 
