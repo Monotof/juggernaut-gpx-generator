@@ -359,7 +359,7 @@ def update_info_label():
 
         if app_state["can_generate_stack_only"]:
             info_label.config(
-                text="Stack-only GPX generation mode"
+                text="GPX stacking only mode"
             )
 
         else:
