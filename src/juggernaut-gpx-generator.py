@@ -3,25 +3,28 @@
 Juggernaut GPX Generator
 """
 
-import re
-import os
-import tkinter as tk
-from tkinter import filedialog, messagebox, ttk, simpledialog
-import xml.etree.ElementTree as ET
-from geographiclib.geodesic import Geodesic
-import tkinter.font as tkfont
-import locale
-import json
-import sys
 import datetime
+import json
+import locale
+import os
+import re
+import sys
+import tkinter as tk
+import tkinter.font as tkfont
+import xml.etree.ElementTree as ET
+
+from geographiclib.geodesic import Geodesic
+from tkinter import filedialog, messagebox, simpledialog, ttk
+
 import geohashing
 
 
-locale.setlocale(locale.LC_ALL, '')
+locale.setlocale(locale.LC_ALL, "")
 
 
 # %% BASIC FUNCTIONS
 def indent(elem, level=0):
+    """Pretty-print XML tree indentation."""
     i = "\n" + level * "  "
     if len(elem):
         if not elem.text or not elem.text.strip():
@@ -35,21 +38,20 @@ def indent(elem, level=0):
 
 
 def parse_coordinates(text):
+    """Parse decimal coordinates or geohashing graticule input."""
     text = text.strip()
 
-    # normalize decimal input
     norm = text.replace(",", ".")
     nums = re.findall(r"-?\d+\.\d+", norm)
 
-    #  normal lat/lon input
+    # decimal coordinate input
     if len(nums) >= 2:
         return (float(nums[0]), float(nums[1])), False
 
-    # graticule or date + graticule
     parts = text.split()
 
     try:
-        # --- date + graticule ---
+        # date + graticule
         if len(parts) == 3:
             date_str, lat_str, lon_str = parts
 
@@ -57,7 +59,7 @@ def parse_coordinates(text):
             lat = int(lat_str)
             lon = int(lon_str)
 
-        # --- graticule only ---
+        # graticule only
         elif len(parts) == 2:
             lat = int(parts[0])
             lon = int(parts[1])
@@ -74,6 +76,7 @@ def parse_coordinates(text):
 
 
 def center_window(parent, child):
+    """Center child window over parent."""
     parent.update_idletasks()
     child.update_idletasks()
 
@@ -92,6 +95,7 @@ def center_window(parent, child):
 
 # %% POINT STORAGE
 def get_appdata_dir():
+    """Return application data directory."""
     if sys.platform.startswith("win"):
         base = os.getenv("APPDATA")
     elif sys.platform == "darwin":
@@ -108,13 +112,15 @@ POINTS_FILE = os.path.join(get_appdata_dir(), "saved_points.json")
 
 
 def load_saved_points():
+    """Load saved points from disk."""
     if not os.path.exists(POINTS_FILE):
         return {}
 
     try:
         with open(POINTS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    except:
+
+    except Exception:
         return {}
 
 
@@ -122,8 +128,26 @@ def save_points_dict(data):
     with open(POINTS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
+
+# %% APPLICATION STATE
+track_rows = []
+
+app_state = {
+    "start_coords": None,
+    "end_coords": None,
+    "start_valid": False,
+    "end_valid": False,
+    "factor": None,
+    "factor_valid": False,
+    "has_tracks": False,
+    "can_generate_boundary": False,
+    "can_generate_stack_only": False,
+}
+
+
 # %% GEODESIC
 def compute_closed_offset_track(lat1, lon1, lat2, lon2, limit, circle_detail = 15):
+    """Generate juggernaut boundary polygon."""
     geod = Geodesic.WGS84
 
     inv = geod.Inverse(lat1, lon1, lat2, lon2)
@@ -142,14 +166,16 @@ def compute_closed_offset_track(lat1, lon1, lat2, lon2, limit, circle_detail = 1
 
     line = geod.Line(lat1, lon1, azi1)
 
-    left_points, right_points = [], []
+    left_points = []
+    right_points = []
 
-    # --- generate base geometry ---
     for i in range(n_segments + 1):
         d = min(i * step, total_dist)
         pos = line.Position(d)
 
-        lat, lon, azi = pos["lat2"], pos["lon2"], pos["azi2"]
+        lat = pos["lat2"]
+        lon = pos["lon2"]
+        azi = pos["azi2"]
 
         left = geod.Direct(lat, lon, azi - 90, limit)
         right = geod.Direct(lat, lon, azi + 90, limit)
@@ -157,7 +183,6 @@ def compute_closed_offset_track(lat1, lon1, lat2, lon2, limit, circle_detail = 1
         left_points.append((left["lat2"], left["lon2"]))
         right_points.append((right["lat2"], right["lon2"]))
 
-    # --- arc generator ---
     def arc(center_lat, center_lon, start_azi, sweep, radius, segments):
         pts = []
         step = sweep / segments
@@ -171,7 +196,6 @@ def compute_closed_offset_track(lat1, lon1, lat2, lon2, limit, circle_detail = 1
     start_q2 = arc(lat1, lon1, azi1 +  90,  90, limit, circle_detail)
     end_half = arc(lat2, lon2, azi2 -  90, 180, limit, (circle_detail * 2) - 1)
 
-    # --- build track ---
     track = []
     track.extend(start_q1)
     track.extend(left_points[1:])
@@ -183,6 +207,7 @@ def compute_closed_offset_track(lat1, lon1, lat2, lon2, limit, circle_detail = 1
 
 
 def compute_center_line(lat1, lon1, lat2, lon2):
+    """Generate straight center line."""
     geod = Geodesic.WGS84
     inv = geod.Inverse(lat1, lon1, lat2, lon2)
     total_dist = inv["s12"]
@@ -200,7 +225,7 @@ def compute_center_line(lat1, lon1, lat2, lon2):
 
 
 def compute_point_deviation(geod, line, lat1, lon1, lat, lon):
-    # inverse from start to point
+    """Compute perpendicular deviation from center line."""
     inv_pt = geod.Inverse(lat1, lon1, lat, lon)
 
     s = inv_pt["s12"]
@@ -219,6 +244,7 @@ def compute_point_deviation(geod, line, lat1, lon1, lat, lon):
 
 # %% GPX
 def create_track(name, points, color):
+    """Create GPX track element."""
     trk = ET.Element("trk")
     ET.SubElement(trk, "name").text = name
 
@@ -236,7 +262,21 @@ def create_track(name, points, color):
     return trk
 
 
+def create_waypoint(lat, lon, name):
+    """Create GPX waypoint element."""
+    wpt = ET.Element(
+        "wpt",
+        lat=str(lat),
+        lon=str(lon)
+    )
+
+    ET.SubElement(wpt, "name").text = name
+
+    return wpt
+
+
 def load_gpx_segments(filepath):
+    """Load all GPX track segments."""
     tree = ET.parse(filepath)
     root = tree.getroot()
 
@@ -254,31 +294,221 @@ def load_gpx_segments(filepath):
     return all_points
 
 
+# %% STATE / UI
+def get_valid_factor():
+    """Return valid deviation factor or None."""
+    try:
+        factor = float(factor_entry.get())
+
+        return factor if factor > 0 else None
+
+    except ValueError:
+        return None
+
+
+def refresh_app_state():
+    """Refresh parsed input state."""
+    start_coords, _ = parse_coordinates(
+        entry1.get()
+    )
+
+    end_coords, _ = parse_coordinates(
+        entry2.get()
+    )
+
+    factor = get_valid_factor()
+
+    app_state["start_coords"] = start_coords
+    app_state["end_coords"] = end_coords
+
+    app_state["start_valid"] = (
+        start_coords is not None
+    )
+
+    app_state["end_valid"] = (
+        end_coords is not None
+    )
+
+    app_state["factor"] = factor
+
+    app_state["factor_valid"] = (
+        factor is not None
+    )
+
+    app_state["has_tracks"] = any(
+        r["file"] for r in track_rows
+    )
+
+    app_state["can_generate_boundary"] = all([
+        app_state["start_valid"],
+        app_state["end_valid"],
+        app_state["factor_valid"],
+    ])
+
+    app_state["can_generate_stack_only"] = (
+        app_state["has_tracks"]
+    )
+
+    refresh_ui_state()
+
+
+def update_info_label():
+    """Update distance/deviation info label."""
+    if not app_state["can_generate_boundary"]:
+
+        if app_state["can_generate_stack_only"]:
+            info_label.config(
+                text="Stack-only GPX generation mode"
+            )
+
+        else:
+            info_label.config(
+                text=(
+                    "Total distance: --- km     "
+                    "Deviation Limit: --- m"
+                )
+            )
+
+        return
+
+    geod = Geodesic.WGS84
+
+    inv = geod.Inverse(
+        app_state["start_coords"][0],
+        app_state["start_coords"][1],
+        app_state["end_coords"][0],
+        app_state["end_coords"][1],
+    )
+
+    distance = inv["s12"]
+
+    limit = distance / app_state["factor"]
+
+    distance_km = locale.format_string(
+        "%.2f",
+        distance / 1000,
+        grouping=True
+    )
+
+    limit_m = locale.format_string(
+        "%.0f",
+        limit,
+        grouping=True
+    )
+
+    info_label.config(
+        text=(
+            f"Total distance: {distance_km} km     "
+            f"Deviation Limit: {limit_m} m"
+        )
+    )
+
+
+def refresh_ui_state():
+    """Refresh button and widget states."""
+    points_exist = bool(load_saved_points())
+
+    start_save_btn.config(
+        state=(
+            "normal"
+            if app_state["start_valid"]
+            else "disabled"
+        )
+    )
+
+    end_save_btn.config(
+        state=(
+            "normal"
+            if app_state["end_valid"]
+            else "disabled"
+        )
+    )
+
+    start_load_btn.config(
+        state=(
+            "normal"
+            if points_exist
+            else "disabled"
+        )
+    )
+
+    end_load_btn.config(
+        state=(
+            "normal"
+            if points_exist
+            else "disabled"
+        )
+    )
+
+    can_generate = (
+        app_state["can_generate_boundary"]
+        or app_state["can_generate_stack_only"]
+    )
+
+    generate_btn.config(
+        state=(
+            "normal"
+            if can_generate
+            else "disabled"
+        )
+    )
+
+    calc_state = (
+        "normal"
+        if app_state["can_generate_boundary"]
+        else "disabled"
+    )
+
+    for row in track_rows:
+        if "calc_btn" in row and row["file"]:
+            row["calc_btn"].config(
+                state=calc_state
+            )
+
+    update_info_label()
+
+
+def update_preview(entry, label):
+    """Update coordinate parsing preview."""
+    coords, _ = parse_coordinates(
+        entry.get()
+    )
+
+    if coords:
+        label.config(
+            text=(
+                f"Parsed: "
+                f"{coords[0]:.6f}, "
+                f"{coords[1]:.6f}"
+            )
+        )
+
+    else:
+        label.config(text="Invalid input")
+
+    refresh_app_state()
+
+
 # %% GUI TRACK ROW
-track_rows = []
-
-
 def add_track_row():
+    """Add tracklog row."""
     row = {}
 
     frame = tk.Frame(tracks_container)
     frame.pack(fill="x", anchor="w", padx=20, pady=4)
     
     controls_frame = tk.Frame(frame)
+
     controls_frame.pack(fill="x")
 
     btn = tk.Button(controls_frame, text="Add Tracklog", width=16)
     btn.pack(side="left")
-    
 
-    # create but DO NOT pack yet
     color_entry = tk.Entry(controls_frame, width=8)
     color_entry.insert(0, "0000ff")
 
     use_btn = tk.Button(controls_frame, text="Use start/end from this")
     calc_btn = tk.Button(controls_frame, text="Calculate juggernaut", state="disabled")
-    update_info()
-    row["calc_btn"] = calc_btn
 
     filename_var = tk.StringVar()
     filename_label = tk.Label(frame, textvariable=filename_var, anchor="w")
@@ -288,13 +518,17 @@ def add_track_row():
     row["color"] = color_entry
     row["filename"] = filename_var
     row["frame"] = frame
+    row["calc_btn"] = calc_btn
 
     def remove_row():
         frame.destroy()
+
         track_rows.remove(row)
 
         if not any(r["file"] is None for r in track_rows):
             add_track_row()
+
+        refresh_app_state()
 
     def choose_file():
         file = filedialog.askopenfilename(filetypes=[("GPX files", "*.gpx")])
@@ -304,7 +538,6 @@ def add_track_row():
         row["file"] = file
         filename_var.set(os.path.basename(file))
 
-        # SHOW controls now
         color_entry.pack(side="left", padx=5)
         use_btn.pack(side="left", padx=5)
         calc_btn.pack(side="left", padx=5)
@@ -315,7 +548,10 @@ def add_track_row():
         if track_rows[-1] is row:
             add_track_row()
 
+        refresh_app_state()
+
     def use_points():
+        """Use track endpoints as start/end."""
         if not row["file"]:
             return
 
@@ -332,26 +568,20 @@ def add_track_row():
 
         update_preview(entry1, label1)
         update_preview(entry2, label2)
-        
-    
+
     def calculate_juggernaut():
         tracks = load_gpx_segments(row["file"])
+        """Calculate track deviation statistics."""
         if not tracks:
             return
-    
+
         pts = tracks[0]
-    
-        c1, _ = parse_coordinates(entry1.get())
-        c2, _ = parse_coordinates(entry2.get())
-    
-        if not c1 or not c2:
-            return
-    
-        lat1, lon1 = c1
-        lat2, lon2 = c2
-    
-        factor = float(factor_entry.get())
-    
+
+        lat1, lon1 = app_state["start_coords"]
+        lat2, lon2 = app_state["end_coords"]
+
+        factor = app_state["factor"]
+
         geod = Geodesic.WGS84
     
         inv = geod.Inverse(lat1, lon1, lat2, lon2)
@@ -363,12 +593,11 @@ def add_track_row():
         max_right = 0
         pos_left = 0
         pos_right = 0
-    
+
         current_dist = 0
-    
+
         for i, (lat, lon) in enumerate(pts):
-    
-            # accumulate track distance
+
             if i > 0:
                 prev_lat, prev_lon = pts[i-1]
                 seg = geod.Inverse(prev_lat, prev_lon, lat, lon)
@@ -387,8 +616,7 @@ def add_track_row():
     
             progress.set((i + 1) / len(pts) * 100)
             root.update_idletasks()
-    
-        # determine overall max
+
         if max_left > max_right:
             max_dev = max_left
             pos_max = pos_left
@@ -399,11 +627,15 @@ def add_track_row():
         dev_factor = total_dist / max_dev if max_dev else 0
     
         show_results(
-            total_dist, limit,
-            max_dev, pos_max,
+            total_dist,
+            limit,
+            max_dev,
+            pos_max,
             dev_factor,
-            max_left, pos_left,
-            max_right, pos_right,
+            max_left,
+            pos_left,
+            max_right,
+            pos_right,
             current_dist,
             row
         )
@@ -415,8 +647,9 @@ def add_track_row():
     track_rows.append(row)
 
 
-# %% GUI LOGIC
 def show_results(total_dist, limit, max_dev, pos_max, dev_factor, max_left, pos_left, max_right, pos_right, track_len, row):
+# %% RESULTS
+    """Show juggernaut analysis dialog."""
     result_text = (
         f"Straight line Distance: {total_dist/1000:.2f} km\n"
         f"Deviation Limit: {limit:.0f} m\n\n"
@@ -482,30 +715,61 @@ def show_results(total_dist, limit, max_dev, pos_max, dev_factor, max_left, pos_
     ).pack(pady=(0, 10))
 
 
-def save_file():
-    c1, _ = parse_coordinates(entry1.get())
-    c2, _ = parse_coordinates(entry2.get())
+# %% FILE GENERATION
+def build_default_filename():
+    """Build default GPX filename."""
+    c2 = app_state["end_coords"]
 
-    if not c1 or not c2:
-        messagebox.showerror("Error", "Invalid coordinates")
-        return
+    text = entry2.get()
 
-    factor = float(factor_entry.get())
+    match = re.search(
+        r"\d{4}-\d{2}-\d{2}",
+        text
+    )
 
-    text1 = entry2.get()
-
-    # try to extract date YYYY-MM-DD
-    match = re.search(r"\d{4}-\d{2}-\d{2}", text1)
     if match:
         date_str = match.group(0)
     else:
-        date_str = datetime.date.today().strftime("%Y-%m-%d")
+        date_str = datetime.date.today().strftime(
+            "%Y-%m-%d"
+        )
 
-    # graticule from endpoint (no decimals)
     lat_grat = int(c2[0])
     lon_grat = int(c2[1])
 
-    default_filename = f"{date_str} {lat_grat} {lon_grat} juggernaut.gpx"
+    return (
+        f"{date_str} "
+        f"{lat_grat} {lon_grat} "
+        f"juggernaut.gpx"
+    )
+
+
+def save_file():
+    """Generate combined GPX file."""
+    boundary_mode = (
+        app_state["can_generate_boundary"]
+    )
+
+    stack_only_mode = (
+        app_state["can_generate_stack_only"]
+    )
+
+    if not (
+        boundary_mode
+        or stack_only_mode
+    ):
+        messagebox.showerror(
+            "Error",
+            "Nothing to generate."
+        )
+
+        return
+
+    default_filename = (
+        build_default_filename()
+        if boundary_mode
+        else "combined_tracklog.gpx"
+    )
 
     filepath = filedialog.asksaveasfilename(
         defaultextension=".gpx",
@@ -515,43 +779,142 @@ def save_file():
     if not filepath:
         return
 
-    lat1, lon1 = c1
-    lat2, lon2 = c2
-
-    geod = Geodesic.WGS84
-    inv = geod.Inverse(lat1, lon1, lat2, lon2)
-    distance = inv["s12"]
-    limit = distance / factor
-
-    boundary = compute_closed_offset_track(lat1, lon1, lat2, lon2, limit)
-
-    gpx = ET.Element("gpx", version="1.1",
-                     xmlns="http://www.topografix.com/GPX/1/1",
-                     **{"xmlns:gpx_style": "http://www.topografix.com/GPX/gpx_style/0/2"})
+    gpx = ET.Element(
+        "gpx",
+        version="1.1",
+        xmlns="http://www.topografix.com/GPX/1/1",
+        **{
+            "xmlns:gpx_style":
+            "http://www.topografix.com/GPX/gpx_style/0/2"
+        }
+    )
 
     metadata = ET.SubElement(gpx, "metadata")
-    ET.SubElement(metadata, "name").text = "generated combined tracklog"
 
-    author = ET.SubElement(metadata, "author")
-    ET.SubElement(author, "name").text = "Juggernaut-GPX-Generator by Monotof"
-    ET.SubElement(author, "link", href="https://geohashing.site/geohashing/Implementations#Juggernaut-GPX-Generator")
+    ET.SubElement(
+        metadata,
+        "name"
+    ).text = "generated combined tracklog"
 
-    gpx.append(create_track("boundary", boundary, "000000"))
+    author = ET.SubElement(
+        metadata,
+        "author"
+    )
 
-    user_tracks = [r for r in track_rows if r["file"]]
+    ET.SubElement(
+        author,
+        "name"
+    ).text = (
+        "Juggernaut-GPX-Generator by Monotof"
+    )
 
-    if user_tracks:
-        for row in reversed(user_tracks):
-            segments = load_gpx_segments(row["file"])
-            for pts in segments:
-                gpx.append(create_track(
-                    os.path.basename(row["file"]),
+    ET.SubElement(
+        author,
+        "link",
+        href=(
+            "https://geohashing.site/geohashing/"
+            "Implementations#Juggernaut-GPX-Generator"
+        )
+    )
+
+    # boundary mode
+    if boundary_mode:
+        lat1, lon1 = (
+            app_state["start_coords"]
+        )
+
+        lat2, lon2 = (
+            app_state["end_coords"]
+        )
+
+        if start_poi_var.get():
+            gpx.append(
+                create_waypoint(
+                    lat1,
+                    lon1,
+                    "Startpoint"
+                )
+            )
+
+        if end_poi_var.get():
+            gpx.append(
+                create_waypoint(
+                    lat2,
+                    lon2,
+                    "Endpoint"
+                )
+            )
+
+        geod = Geodesic.WGS84
+
+        inv = geod.Inverse(
+            lat1,
+            lon1,
+            lat2,
+            lon2
+        )
+
+        limit = (
+            inv["s12"]
+            / app_state["factor"]
+        )
+
+        boundary = (
+            compute_closed_offset_track(
+                lat1,
+                lon1,
+                lat2,
+                lon2,
+                limit
+            )
+        )
+
+        gpx.append(
+            create_track(
+                "boundary",
+                boundary,
+                "000000"
+            )
+        )
+
+    # tracklogs
+    user_tracks = [
+        r for r in track_rows
+        if r["file"]
+    ]
+
+    for row in reversed(user_tracks):
+        segments = load_gpx_segments(
+            row["file"]
+        )
+
+        for pts in segments:
+            gpx.append(
+                create_track(
+                    os.path.basename(
+                        row["file"]
+                    ),
                     pts,
                     row["color"].get()
-                ))
-    else:
-        center = compute_center_line(lat1, lon1, lat2, lon2)
-        gpx.append(create_track("exact line", center, "0000ff"))
+                )
+            )
+
+    # fallback center line
+    if boundary_mode and not user_tracks:
+        center = compute_center_line(
+            lat1,
+            lon1,
+            lat2,
+            lon2
+        )
+
+        gpx.append(
+            create_track(
+                "exact line",
+                center,
+                "0000ff"
+            )
+        )
 
     indent(gpx)
     ET.ElementTree(gpx).write(filepath, encoding="utf-8", xml_declaration=True)
@@ -574,10 +937,11 @@ def save_point(entry):
         data[name] = {"lat": coords[0], "lon": coords[1]}
     save_points_dict(data)
 
-    update_save_load_buttons()
+    refresh_ui_state()
 
 
 def load_point(entry, label):
+    """Load saved coordinate preset."""
     data = load_saved_points()
     if not data:
         return
@@ -640,7 +1004,8 @@ def load_point(entry, label):
         names.pop(idx)
 
         refresh_list()
-        update_save_load_buttons()
+
+        refresh_ui_state()
 
         if not names:
             dialog.destroy()
@@ -650,84 +1015,41 @@ def load_point(entry, label):
     listbox.bind("<Return>", lambda e: do_load())
 
     btn_frame = tk.Frame(dialog)
+
     btn_frame.pack(pady=10)
-    
-    tk.Button(btn_frame, text="Remove", command=do_remove).pack(side="left", padx=5)
-    tk.Button(btn_frame, text="Load", command=do_load).pack(side="left", padx=5)
+
+    tk.Button(
+        btn_frame,
+        text="Remove",
+        command=do_remove
+    ).pack(
+        side="left",
+        padx=5
+    )
+
+    tk.Button(
+        btn_frame,
+        text="Load",
+        command=do_load
+    ).pack(
+        side="left",
+        padx=5
+    )
+
     center_window(root, dialog)
 
-# %% update functions
-def update_save_load_buttons():
-    points_exist = bool(load_saved_points())
 
-    c1, _ = parse_coordinates(entry1.get())
-    c2, _ = parse_coordinates(entry2.get())
-
-    start_save_btn.config(state="normal" if c1 else "disabled")
-    end_save_btn.config(state="normal" if c2 else "disabled")
-
-    start_load_btn.config(state="normal" if points_exist else "disabled")
-    end_load_btn.config(state="normal" if points_exist else "disabled")
-    
-def update_info():
-    c1, _ = parse_coordinates(entry1.get())
-    c2, _ = parse_coordinates(entry2.get())
-
-    try:
-        factor = float(factor_entry.get())
-    except:
-        info_label.config(text="Invalid factor")
-        return
-
-    if not c1 or not c2:
-        info_label.config(text="Total distance: --- km     Deviation Limit: --- m")
-        generate_btn.config(state="disabled")
-        for row in track_rows:
-            if "calc_btn" in row and row["file"]:
-                row["calc_btn"].config(state="disabled")
-        return
-
-    geod = Geodesic.WGS84
-    inv = geod.Inverse(c1[0], c1[1], c2[0], c2[1])
-
-    distance = inv["s12"]
-    limit = distance / factor
-
-    distance_km = locale.format_string("%.2f", distance / 1000, grouping=True)
-    limit_m = locale.format_string("%.0f", limit, grouping=True)
-    
-    info_label.config(
-        text=f"Total distance: {distance_km} km     Deviation Limit: {limit_m} m"
-    )
-    
-    generate_btn.config(state="normal")
-    for row in track_rows:
-        if "calc_btn" in row and row["file"]:
-            row["calc_btn"].config(state="normal")
-
-
-
-def update_preview(entry, label):
-    coords, _ = parse_coordinates(entry.get())
-    if coords:
-        label.config(text=f"Parsed: {coords[0]:.6f}, {coords[1]:.6f}")
-    else:
-        label.config(text="Invalid input")
-
-    update_info()
-    update_save_load_buttons()
-    
-# %% main
+# %% MAIN
 if __name__ == "__main__":
 
     # %%% UI
     root = tk.Tk()
     root.title("Juggernaut GPX Generator")
     root.geometry("500x600")
-    
+
     PAD_X = 20
     PAD_Y = 4
-    
+
     main_frame = tk.Frame(root)
     main_frame.pack(fill="both", expand=True)
     
@@ -800,17 +1122,18 @@ if __name__ == "__main__":
     factor_entry = tk.Entry(factor_frame, width=5)
     factor_entry.insert(0, "20")
     factor_entry.pack(side="left")
-    factor_entry.bind("<KeyRelease>", lambda e: update_info())
-    
-    # info label
+
+    factor_entry.bind(
+        "<KeyRelease>",
+        lambda e: refresh_app_state()
+    )
+
     info_label = tk.Label(
         left_frame,
         text="Total distance: --- km     Deviation Limit: --- m"
     )
     info_label.pack(anchor="w")
-    
-    
-    # RIGHT SIDE (BIG BUTTON)
+
     right_frame = tk.Frame(top_action_frame)
     right_frame.pack(side="right", anchor="n")
     
@@ -832,13 +1155,13 @@ if __name__ == "__main__":
     tk.Label(main_frame, text="Tracklogs to include:").pack(
         anchor="w", padx=PAD_X, pady=(10, 2)
     )
-    
+
     tracks_container = tk.Frame(main_frame)
     tracks_container.pack(fill="x", anchor="w")
     
     # %%% STATUS BAR (BOTTOM)
     progress = tk.DoubleVar()
-    
+
     status_frame = tk.Frame(root)
     status_frame.pack(side="bottom", fill="x")
     
@@ -849,5 +1172,7 @@ if __name__ == "__main__":
     # %%% INIT
     update_save_load_buttons()
     add_track_row()
-    
+
+    refresh_app_state()
+
     root.mainloop()
