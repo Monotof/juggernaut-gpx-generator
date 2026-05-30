@@ -256,7 +256,6 @@ def create_track(name, points, color):
     ET.SubElement(line, "color").text = color
 
     seg = ET.SubElement(trk, "trkseg")
-
     for lat, lon in points:
         ET.SubElement(seg, "trkpt", lat=str(lat), lon=str(lon))
 
@@ -265,14 +264,8 @@ def create_track(name, points, color):
 
 def create_waypoint(lat, lon, name):
     """Create GPX waypoint element."""
-    wpt = ET.Element(
-        "wpt",
-        lat=str(lat),
-        lon=str(lon)
-    )
-
+    wpt = ET.Element("wpt", lat=str(lat), lon=str(lon))
     ET.SubElement(wpt, "name").text = name
-
     return wpt
 
 
@@ -300,7 +293,6 @@ def get_valid_factor():
     """Return valid deviation factor or None."""
     try:
         factor = float(factor_entry.get())
-
         return factor if factor > 0 else None
 
     except ValueError:
@@ -309,46 +301,26 @@ def get_valid_factor():
 
 def refresh_app_state():
     """Refresh parsed input state."""
-    start_coords, _ = parse_coordinates(
-        entry1.get()
-    )
-
-    end_coords, _ = parse_coordinates(
-        entry2.get()
-    )
+    start_coords, _ = parse_coordinates(entry1.get())
+    end_coords, _ = parse_coordinates(entry2.get())
 
     factor = get_valid_factor()
 
     app_state["start_coords"] = start_coords
     app_state["end_coords"] = end_coords
-
-    app_state["start_valid"] = (
-        start_coords is not None
-    )
-
-    app_state["end_valid"] = (
-        end_coords is not None
-    )
-
+    app_state["start_valid"] = (start_coords is not None)
+    app_state["end_valid"] = (end_coords is not None)
     app_state["factor"] = factor
-
-    app_state["factor_valid"] = (
-        factor is not None
-    )
-
-    app_state["has_tracks"] = any(
-        r["file"] for r in track_rows
-    )
-
+    app_state["factor_valid"] = (factor is not None)
+    app_state["has_tracks"] = any(r["file"] for r in track_rows)
+    
     app_state["can_generate_boundary"] = all([
         app_state["start_valid"],
         app_state["end_valid"],
         app_state["factor_valid"],
     ])
 
-    app_state["can_generate_stack_only"] = (
-        app_state["has_tracks"]
-    )
+    app_state["can_generate_stack_only"] = (app_state["has_tracks"])
 
     refresh_ui_state()
 
@@ -356,19 +328,10 @@ def refresh_app_state():
 def update_info_label():
     """Update distance/deviation info label."""
     if not app_state["can_generate_boundary"]:
-
         if app_state["can_generate_stack_only"]:
-            info_label.config(
-                text="GPX stacking only mode"
-            )
-
+            info_label.config(text="GPX stacking only mode")
         else:
-            info_label.config(
-                text=(
-                    "Total distance: --- km     "
-                    "Deviation Limit: --- m"
-                )
-            )
+            info_label.config(text="Total distance: --- km     Deviation Limit: --- m")
 
         return
 
@@ -385,17 +348,9 @@ def update_info_label():
 
     limit = distance / app_state["factor"]
 
-    distance_km = locale.format_string(
-        "%.2f",
-        distance / 1000,
-        grouping=True
-    )
+    distance_km = locale.format_string("%.2f", distance / 1000, grouping=True)
 
-    limit_m = locale.format_string(
-        "%.0f",
-        limit,
-        grouping=True
-    )
+    limit_m = locale.format_string("%.0f", limit, grouping=True)
 
     info_label.config(
         text=(
@@ -408,72 +363,26 @@ def update_info_label():
 def refresh_ui_state():
     """Refresh button and widget states."""
     points_exist = bool(load_saved_points())
+    can_generate = app_state["can_generate_boundary"] or app_state["can_generate_stack_only"]
 
-    start_save_btn.config(
-        state=(
-            "normal"
-            if app_state["start_valid"]
-            else "disabled"
-        )
-    )
+    start_save_btn.config(state="normal" if app_state["start_valid"] else "disabled")
+    end_save_btn.config(state="normal" if app_state["end_valid"] else "disabled")
+    start_load_btn.config(state="normal" if points_exist else "disabled")
+    end_load_btn.config(state="normal" if points_exist else "disabled")
+    generate_btn.config( state="normal" if can_generate else "disabled")
 
-    end_save_btn.config(
-        state=(
-            "normal"
-            if app_state["end_valid"]
-            else "disabled"
-        )
-    )
-
-    start_load_btn.config(
-        state=(
-            "normal"
-            if points_exist
-            else "disabled"
-        )
-    )
-
-    end_load_btn.config(
-        state=(
-            "normal"
-            if points_exist
-            else "disabled"
-        )
-    )
-
-    can_generate = (
-        app_state["can_generate_boundary"]
-        or app_state["can_generate_stack_only"]
-    )
-
-    generate_btn.config(
-        state=(
-            "normal"
-            if can_generate
-            else "disabled"
-        )
-    )
-
-    calc_state = (
-        "normal"
-        if app_state["can_generate_boundary"]
-        else "disabled"
-    )
+    calc_state = ("normal" if app_state["can_generate_boundary"] else "disabled")
 
     for row in track_rows:
         if "calc_btn" in row and row["file"]:
-            row["calc_btn"].config(
-                state=calc_state
-            )
+            row["calc_btn"].config(state=calc_state)
 
     update_info_label()
 
 
 def update_preview(entry, label):
     """Update coordinate parsing preview."""
-    coords, _ = parse_coordinates(
-        entry.get()
-    )
+    coords, _ = parse_coordinates(entry.get())
 
     if coords:
         label.config(
@@ -747,23 +656,11 @@ def build_default_filename():
 
 def save_file():
     """Generate combined GPX file."""
-    boundary_mode = (
-        app_state["can_generate_boundary"]
-    )
-
-    stack_only_mode = (
-        app_state["can_generate_stack_only"]
-    )
-
-    if not (
-        boundary_mode
-        or stack_only_mode
-    ):
-        messagebox.showerror(
-            "Error",
-            "Nothing to generate."
-        )
-
+    boundary_mode = app_state["can_generate_boundary"]
+    stack_only_mode = app_state["can_generate_stack_only"]
+    
+    if not (boundary_mode or stack_only_mode):
+        messagebox.showerror("Error", "Nothing to generate.")
         return
 
     default_filename = (
@@ -792,27 +689,13 @@ def save_file():
 
     metadata = ET.SubElement(gpx, "metadata")
 
-    ET.SubElement(
-        metadata,
-        "name"
-    ).text = "generated combined tracklog"
+    ET.SubElement(metadata, "name").text = "generated combined tracklog"
 
-    author = ET.SubElement(
-        metadata,
-        "author"
-    )
+    author = ET.SubElement(metadata, "author")
 
-    ET.SubElement(
-        author,
-        "name"
-    ).text = (
-        "Juggernaut-GPX-Generator by Monotof"
-    )
+    ET.SubElement(author, "name").text = "Juggernaut-GPX-Generator by Monotof"
 
-    ET.SubElement(
-        author,
-        "link",
-        href=(
+    ET.SubElement(author, "link", href=(
             "https://geohashing.site/geohashing/"
             "Implementations#Juggernaut-GPX-Generator"
         )
@@ -820,102 +703,34 @@ def save_file():
 
     # boundary mode
     if boundary_mode:
-        lat1, lon1 = (
-            app_state["start_coords"]
-        )
-
-        lat2, lon2 = (
-            app_state["end_coords"]
-        )
+        lat1, lon1 = app_state["start_coords"]
+        lat2, lon2 = app_state["end_coords"]
 
         if start_poi_var.get():
-            gpx.append(
-                create_waypoint(
-                    lat1,
-                    lon1,
-                    "Startpoint"
-                )
-            )
+            gpx.append(create_waypoint(lat1, lon1, "Startpoint"))
 
         if end_poi_var.get():
-            gpx.append(
-                create_waypoint(
-                    lat2,
-                    lon2,
-                    "Endpoint"
-                )
-            )
+            gpx.append(create_waypoint(lat2, lon2, "Endpoint"))
 
         geod = Geodesic.WGS84
-
-        inv = geod.Inverse(
-            lat1,
-            lon1,
-            lat2,
-            lon2
-        )
-
-        limit = (
-            inv["s12"]
-            / app_state["factor"]
-        )
-
-        boundary = (
-            compute_closed_offset_track(
-                lat1,
-                lon1,
-                lat2,
-                lon2,
-                limit
-            )
-        )
-
-        gpx.append(
-            create_track(
-                "boundary",
-                boundary,
-                "000000"
-            )
-        )
+        inv = geod.Inverse(lat1, lon1, lat2, lon2)
+        limit = (inv["s12"] / app_state["factor"])
+        boundary = compute_closed_offset_track(lat1, lon1, lat2, lon2, limit)
+        gpx.append(create_track("boundary", boundary, "000000"))
 
     # tracklogs
-    user_tracks = [
-        r for r in track_rows
-        if r["file"]
-    ]
+    user_tracks = [r for r in track_rows if r["file"]]
 
     for row in reversed(user_tracks):
-        segments = load_gpx_segments(
-            row["file"]
-        )
+        segments = load_gpx_segments(row["file"])
 
         for pts in segments:
-            gpx.append(
-                create_track(
-                    os.path.basename(
-                        row["file"]
-                    ),
-                    pts,
-                    row["color"].get()
-                )
-            )
+            gpx.append(create_track(os.path.basename(row["file"]), pts, row["color"].get()))
 
     # fallback center line
     if boundary_mode and not user_tracks:
-        center = compute_center_line(
-            lat1,
-            lon1,
-            lat2,
-            lon2
-        )
-
-        gpx.append(
-            create_track(
-                "exact line",
-                center,
-                "0000ff"
-            )
-        )
+        center = compute_center_line(lat1, lon1, lat2, lon2)
+        gpx.append(create_track("exact line", center, "0000ff"))
 
     indent(gpx)
     ET.ElementTree(gpx).write(filepath, encoding="utf-8", xml_declaration=True)
