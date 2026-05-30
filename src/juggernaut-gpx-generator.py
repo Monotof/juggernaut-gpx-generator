@@ -530,11 +530,11 @@ def save_file():
                      **{"xmlns:gpx_style": "http://www.topografix.com/GPX/gpx_style/0/2"})
 
     metadata = ET.SubElement(gpx, "metadata")
-    ET.SubElement(metadata, "name").text = "auto juggernaut boundaries"
+    ET.SubElement(metadata, "name").text = "generated combined tracklog"
 
     author = ET.SubElement(metadata, "author")
-    ET.SubElement(author, "name").text = "Monotof's juggernaut script"
-    ET.SubElement(author, "link", href="https://geohashing.site/geohashing/User:Monotof")
+    ET.SubElement(author, "name").text = "Juggernaut-GPX-Generator by Monotof"
+    ET.SubElement(author, "link", href="https://geohashing.site/geohashing/Implementations#Juggernaut-GPX-Generator")
 
     gpx.append(create_track("boundary", boundary, "000000"))
 
