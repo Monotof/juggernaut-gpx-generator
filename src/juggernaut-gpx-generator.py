@@ -701,16 +701,19 @@ def save_file():
         )
     )
 
+    # optional POIs (works in both boundary and stack-only mode)
+    if app_state["start_valid"] and start_poi_var.get():
+        lat1, lon1 = app_state["start_coords"]
+        gpx.append(create_waypoint(lat1, lon1, "Startpoint"))
+
+    if app_state["end_valid"] and end_poi_var.get():
+        lat2, lon2 = app_state["end_coords"]
+        gpx.append(create_waypoint(lat2, lon2, "Endpoint"))
+    
     # boundary mode
     if boundary_mode:
         lat1, lon1 = app_state["start_coords"]
         lat2, lon2 = app_state["end_coords"]
-
-        if start_poi_var.get():
-            gpx.append(create_waypoint(lat1, lon1, "Startpoint"))
-
-        if end_poi_var.get():
-            gpx.append(create_waypoint(lat2, lon2, "Endpoint"))
 
         geod = Geodesic.WGS84
         inv = geod.Inverse(lat1, lon1, lat2, lon2)
