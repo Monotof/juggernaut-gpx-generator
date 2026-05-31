@@ -10,7 +10,7 @@ Tool for generating .gpx files to visualize Tracklogs for the [Juggernaut Achiev
 <table border="0" cellspacing="0" cellpadding="0">
   <tr>
   <td width="310" valign="top" style="border:none;">
-  <img height="266" alt="Screenshot 2026-05-24 191817" src="https://github.com/user-attachments/assets/f7c399b2-9272-432e-b0e6-2b5ec5bf6011" />
+  <img width="623" height="567" alt="Screenshot 2026-05-30 085323" src="https://github.com/user-attachments/assets/517c8cfe-7c22-46d4-9fc6-2ffc9ebe71d7" />
   </td>
   <td valign="top" style="border:none; padding-left:20px;">
   
